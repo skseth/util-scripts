@@ -1,0 +1,82 @@
+plugins {
+    id 'maven-publish'
+}
+
+repositories {
+    mavenCentral()
+}
+
+configurations {
+    uploadElements
+}
+
+dependencies {
+    uploadElements 'org.mybatis:mybatis-spring:1.2.2'
+    uploadElements 'org.mybatis:mybatis:3.5.0'
+}
+
+ext.repoName = "extern"
+ext.repoUrl = "http://localhost:8081/artifactory/${repoName}"
+ext.repoUser = "admin"
+ext.repoPswd = "password"
+
+ext.getPath = {group, artifact, baseversion, classifier, extension ->
+    StringBuilder path = new StringBuilder( 128 );
+    path.append( group.replace( '.', '/' ) ).append( '/' );
+    path.append( artifact).append( '/' );
+    path.append( baseversion).append( '/' );
+    path.append( artifact).append( '-' ).append( baseversion );
+    if ( classifier != null && classifier.length() > 0 ) {
+        path.append( '-' ).append( classifier );
+    }
+
+    if ( extension.length() > 0 ) {
+        path.append( '.' ).append( extension );
+    }
+    return path.toString();
+}
+
+ext.urlExists = { url ->
+    def conn = new URL(url).openConnection();
+    conn.requestMethod = 'HEAD'
+    conn.connect()
+
+    return conn.responseCode != 404
+}
+
+ext.artifactExists = { resolvedart ->
+    def modid = resolvedart.moduleVersion.id
+    def path = getPath(modid.group,modid.name,modid.version,resolvedart.classifier,resolvedart.extension)
+    def url = "${repoUrl}/${path}"
+    logger.info("Checking url ${url}")
+    return urlExists(url)
+}
+
+publishing {
+    configurations.uploadElements.resolvedConfiguration.resolvedArtifacts.each { art ->
+        if (!artifactExists(art)) {
+            def modid = art.moduleVersion.id
+            logger.info("${modid.group} ${modid.name} ${modid.version} ${art.classifier} ${art.extension} ${art.file}")
+            publications.create("${modid.group}-${modid.name}", MavenPublication, {
+                artifactId = modid.name
+                groupId = modid.group
+                version = modid.version
+                artifact(art.file) {
+                    classifier art.classifier
+                    extension art.extension
+                }
+            })
+        }
+    }    
+
+    repositories {
+        maven {
+            name = project.repoName
+            url = project.repoUrl
+            credentials {
+                username project.repoUser
+                password project.repoPswd
+            }
+        }
+    }
+}
